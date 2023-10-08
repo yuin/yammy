@@ -205,7 +205,10 @@ func loadNode(path string, c *loadConfig, allVariables *node) (*node, error) {
 	}
 
 	if variables != nil {
-		allVariables.Merge(variables)
+		_, err = allVariables.Merge(variables)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return mergedNode, nil
