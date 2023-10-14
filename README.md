@@ -1,7 +1,7 @@
 # yammy
 
 [![https://pkg.go.dev/github.com/yuin/yammy](https://pkg.go.dev/badge/github.com/yuin/yammy.svg)](https://pkg.go.dev/github.com/yuin/yammy)
-[![https://github.com/yuin/yammy/actions?query=workflow:test](https://github.com/yuin/yammy/workflows/test/badge.svg?branch=master&event=push)](https://github.com/yuin/yammy/actions?query=workflow:test)
+[![https://github.com/yuin/yammy/actions?query=workflow:test](https://github.com/yuin/yammy/workflows/test/badge.svg?branch=main&event=push)](https://github.com/yuin/yammy/actions?query=workflow:test)
 [![https://goreportcard.com/report/github.com/yuin/yammy](https://goreportcard.com/badge/github.com/yuin/yammy)](https://goreportcard.com/report/github.com/yuin/yammy)
 
 > Composable YAML/JSON made easy for CLI and Go :yum:
