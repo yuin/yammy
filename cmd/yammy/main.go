@@ -25,6 +25,7 @@ func main() {
 	generateOutput := generateCmd.String("o", "", "output file path(optional)")
 	generateFormat := generateCmd.String("f", "yaml", "output format(yaml or json)")
 	generateSourceMapComment := generateCmd.Bool("c", false, "add source map comments")
+	generateKeepsVariables := generateCmd.Bool("k", false, "keep variable expressions(optional)")
 	generateSourceMap := generateCmd.String("s", "", "source map node key name")
 
 	cmdName := "generate"
@@ -58,6 +59,9 @@ redo:
 		}
 		if len(*generateSourceMap) != 0 {
 			opts = append(opts, yammy.WithSourceMapKey(*generateSourceMap))
+		}
+		if *generateKeepsVariables {
+			opts = append(opts, yammy.WithKeepsVariables())
 		}
 		abortIf(yammy.Load(*generateInput, &n, opts...))
 		var err error

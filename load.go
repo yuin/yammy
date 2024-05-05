@@ -18,6 +18,7 @@ type loadConfig struct {
 	SourceMapKey     string
 	SourceMapComment bool
 	VarResolver      VarResolver
+	KeepsVariables   bool
 }
 
 // LoadOption is an option for [Load] .
@@ -66,6 +67,13 @@ func WithVarResolver(v VarResolver) LoadOption {
 	}
 }
 
+// WithKeepsVariables is an option that keeps variables expression.
+func WithKeepsVariables() LoadOption {
+	return func(c *loadConfig) {
+		c.KeepsVariables = true
+	}
+}
+
 // Load loads given YAML/JON file.
 func Load(name string, dest any, opts ...LoadOption) error {
 	c := &loadConfig{
@@ -74,6 +82,7 @@ func Load(name string, dest any, opts ...LoadOption) error {
 		SourceMapKey:     "",
 		SourceMapComment: false,
 		VarResolver:      nil,
+		KeepsVariables:   false,
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -93,7 +102,7 @@ func Load(name string, dest any, opts ...LoadOption) error {
 		varResolver = newDefaultVarResolver(variables)
 	}
 
-	err = processVars(nd, varResolver)
+	err = processVars(nd, varResolver, c.KeepsVariables)
 	if err != nil {
 		return err
 	}
@@ -319,20 +328,20 @@ func jsonPatchRemove(n *node, jp jsonPointer) error {
 		target.KindString(), parent.String())
 }
 
-func processVars(n *node, resolver VarResolver) error {
+func processVars(n *node, resolver VarResolver, keepsVariables bool) error {
 
 	switch n.Kind {
 	case yaml.MappingNode:
 		return n.ForEachMap(func(k, v *node) error {
-			return processVars(v, resolver)
+			return processVars(v, resolver, keepsVariables)
 		})
 	case yaml.SequenceNode:
 		return n.ForEachSeq(func(i int, v *node) error {
-			return processVars(v, resolver)
+			return processVars(v, resolver, keepsVariables)
 		})
 	case yaml.ScalarNode:
 		if n.Tag == "!!str" {
-			newString, err := expandVar(n.Value, resolver)
+			newString, err := expandVar(n.Value, resolver, keepsVariables)
 			if err != nil {
 				return err
 			}

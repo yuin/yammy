@@ -15,7 +15,7 @@ test:
   value: ${KEY:10} bbb ${KEY2}
   value2:
     - ${KEY2:aaa}
-  value3: ddd ${AAA:'e e e'} fff
+  value3: ${AAA:"e \"e}\\ e"} 
   value4: ddd ${AAA:"e e e"} fff
 `),
 	})
@@ -33,13 +33,32 @@ test:
 	if "ccc" != result["test"].(map[string]any)["value2"].([]any)[0] {
 		t.Error("failed to evaluate variables")
 	}
-	if "ddd e e e fff" != result["test"].(map[string]any)["value3"] {
+	if `e "e}\ e` != result["test"].(map[string]any)["value3"] {
+		println(result["test"].(map[string]any)["value3"].(string))
 		t.Error("failed to evaluate variables")
 	}
-	if "ddd \"e e e\" fff" != result["test"].(map[string]any)["value4"] {
+	if "ddd e e e fff" != result["test"].(map[string]any)["value4"] {
 		t.Error("failed to evaluate variables")
 	}
 
+	result = map[any]any{}
+	err = Load("test.yml", &result, WithFileSystem(fs), WithKeepsVariables())
+	if err != nil {
+		t.Error(err.Error())
+	}
+
+	if "${KEY:aaa} bbb ${KEY2:ccc}" != result["test"].(map[string]any)["value"] {
+		t.Error("failed to evaluate variables")
+	}
+	if "${KEY2:ccc}" != result["test"].(map[string]any)["value2"].([]any)[0] {
+		t.Error("failed to evaluate variables")
+	}
+	if `${AAA:"e \"e}\\ e"}` != result["test"].(map[string]any)["value3"] {
+		t.Error("failed to evaluate variables")
+	}
+	if `ddd ${AAA:"e e e"} fff` != result["test"].(map[string]any)["value4"] {
+		t.Error("failed to evaluate variables")
+	}
 }
 
 func TestDefaultIntVar(t *testing.T) {
@@ -101,7 +120,7 @@ _directives:
     KEY: 10
     KEY2: bbb
 test:
-  value: ${KEY}
+  value: ${KEY:0}
   value2: ${KEY2}
 `),
 	})

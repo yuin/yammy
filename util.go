@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -70,16 +71,17 @@ type vvv struct {
 	end   int
 	name  string
 	def   string
+	tag   string
 }
 
 // VarResolver resolves variables named key.
 // VarResolver returns [ErrVarNotFound] if variables not found.
-type VarResolver func(key string) (any, error)
+type VarResolver func(key string) (string, error)
 
 func newDefaultVarResolver(vars *node) VarResolver {
-	return func(key string) (any, error) {
-		ev := os.Getenv(key)
-		if len(ev) != 0 {
+	return func(key string) (string, error) {
+		ev, ok := os.LookupEnv(key)
+		if ok {
 			return ev, nil
 		}
 
@@ -87,16 +89,16 @@ func newDefaultVarResolver(vars *node) VarResolver {
 			v := vars.Get(key)
 			if v != nil {
 				if v.Kind != yaml.ScalarNode {
-					return nil, ErrDirective.New("variable %s must be a scalar node", nil, key)
+					return "", ErrDirective.New("variable %s must be a scalar node", nil, key)
 				}
 				return v.Value, nil
 			}
 		}
-		return nil, ErrVarNotFound.New("%s not found", nil, key)
+		return "", ErrVarNotFound.New("%s not found", nil, key)
 	}
 }
 
-func expandVar(v string, resolv VarResolver) (string, error) {
+func expandVar(v string, resolv VarResolver, keepsVariables bool) (string, error) {
 	i := 0
 	state := 0
 	varStarts := -1
@@ -141,11 +143,12 @@ func expandVar(v string, resolv VarResolver) (string, error) {
 					start: varStarts,
 					end:   i + 1,
 					name:  varName,
+					tag:   "str",
 				})
 				state = 0
 			}
 		case 4: // default value
-			if c == '"' || c == '\'' {
+			if c == '"' {
 				value, end := parseVarString(v, i, c)
 				state = 0
 				if end < 0 || len(v) == end {
@@ -158,11 +161,8 @@ func expandVar(v string, resolv VarResolver) (string, error) {
 						end:   end + 1,
 						name:  varName,
 					}
-					if c == '"' {
-						va.def = "\"" + string(value) + "\""
-					} else {
-						va.def = string(value)
-					}
+					va.def = string(value)
+					va.tag = "str"
 					vars = append(vars, va)
 				}
 			} else {
@@ -181,6 +181,7 @@ func expandVar(v string, resolv VarResolver) (string, error) {
 						end:   j + 1,
 						name:  varName,
 						def:   string(value),
+						tag:   guessScalarNodeTag(value),
 					})
 				}
 			}
@@ -194,15 +195,35 @@ func expandVar(v string, resolv VarResolver) (string, error) {
 	var ret []byte
 	for _, vv := range vars {
 		ret = append(ret, v[offset:vv.start]...)
-		v, err := resolv(vv.name)
+		resolved, err := resolv(vv.name)
 		if err != nil {
-			if errors.Is(err, ErrVarNotFound) && len(vv.def) != 0 {
-				v = vv.def
+			resolved = vv.def
+			if errors.Is(err, ErrVarNotFound) {
+				if len(vv.def) == 0 && !keepsVariables {
+					return "", err
+				}
 			} else {
 				return "", err
 			}
 		}
-		ret = append(ret, fmt.Sprintf("%v", v)...)
+		isSingleVariable := len(vars) == 1 && vv.end == len(v) && vv.start == 0
+		if !keepsVariables {
+			if len(resolved) == 0 && isSingleVariable {
+				ret = append(ret, `""`...)
+			} else if vv.tag == "str" && isSingleVariable && shouldQuote(resolved) {
+				ret = append(ret, quote(resolved)...)
+			} else {
+				ret = append(ret, resolved...)
+			}
+		} else {
+			if len(resolved) == 0 {
+				ret = append(ret, fmt.Sprintf("${%s}", vv.name)...)
+			} else if vv.tag == "str" && shouldQuote(resolved) {
+				ret = append(ret, fmt.Sprintf("${%s:%s}", vv.name, quote(resolved))...)
+			} else {
+				ret = append(ret, fmt.Sprintf("${%s:%s}", vv.name, resolved)...)
+			}
+		}
 		offset = vv.end
 	}
 	ret = append(ret, v[offset:]...)
@@ -210,14 +231,17 @@ func expandVar(v string, resolv VarResolver) (string, error) {
 }
 
 func parseVarString(v string, i int, q byte) ([]byte, int) {
-	i++ //skip "|'
+	i++ //skip `q`
 	l := len(v)
 	var buf []byte
 	for i < l {
 		c := v[i]
 		if c == '\\' && i != l-1 {
 			if v[i+1] == q {
-				buf = append(buf, '\\', q)
+				buf = append(buf, q)
+				i += 2
+			} else if v[i+1] == '\\' {
+				buf = append(buf, '\\')
 				i += 2
 			} else {
 				buf = append(buf, c)
@@ -232,6 +256,34 @@ func parseVarString(v string, i int, q byte) ([]byte, int) {
 		i++
 	}
 	return buf, -1
+}
+
+var space = regexp.MustCompile(`\s`)
+
+func shouldQuote(s string) bool {
+	return strings.Contains(s, "}") || strings.Contains(s, "\"") || guessScalarNodeTag(s) != "str" || space.MatchString(s)
+}
+
+func quote(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	return fmt.Sprintf(`"%s"`, s)
+}
+
+func guessScalarNodeTag(s string) string {
+	if s == "null" {
+		return "null"
+	}
+	if s == "true" || s == "false" || s == "yes" || s == "no" || s == "on" || s == "off" {
+		return "bool"
+	}
+	if _, err := strconv.Atoi(s); err == nil {
+		return "int"
+	}
+	if _, err := strconv.ParseFloat(s, 64); err == nil {
+		return "float"
+	}
+	return "str"
 }
 
 type jsonPointerToken struct {

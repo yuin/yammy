@@ -45,7 +45,7 @@ _directives: # directive object
     - path: /arr/-
       op: add
       value: 01hoge
-  vars:
+  variables:
     varname: value
 
 name: value # your own data
@@ -131,28 +131,31 @@ yammy resolves variable values in the following order:
 - a variable that is defined in `_directives.variables`
 - an enviroment variable
 
-A default value can be quoted with `'` or `"`.
+A default value can be quoted with `"`. Quoted values will be resolved as a string.
 
 ```
-  value3: ddd ${AAA:'e e e'} fff
+  value3: ${BBB:""}
   value4: ddd ${AAA:"e e e"} fff
 ```
 
 results
 
 ```
-value3: ddd e e e fff
-value4: ddd "e e e" fff
+value3: ""
+value4: ddd e e e fff
 ```
 
-As you can see, `"` is left as is.
-
-Note that if you want to define a scalar number node, you should not quote the value with `"` .
+A Variable type will be guessed by a default value. A Variable without a default value will be guessed as a string.
 
 ```
-value: ${AAA:10} # => value: 10, means a scalar number node
-value2: ${AAA:"10"} # => value: "10", means a scalar string node
+value: ${VALUE:10} # => means a scalar number node
+value2: ${VALUE2:"10"} # => means a scalar string node
+value3: ${VALUE3} # => no default values, means a scalar string node
+value4: ${VALUE4:false} # means a scalar bool node
 ```
+
+If `VALUE3=true` is set in the environment, `value3` will be `"true"`(a scalar string). 
+If `VALUE4=true` is set in the environment, `value4` will be `true`(a scalar bool). 
 
 #### Debugging
 yammy can generate original node positions as a node and comments.
@@ -215,6 +218,7 @@ Usage of generate:
   -h    show this help
   -i string
         source file path(required)
+  -k    keep variable expressions(optional)
   -o string
         output file path(optional)
   -s string
@@ -295,6 +299,10 @@ ref: #  test.yml:19
     !!merge <<: *default #  test.yml:20
 root: root #  root.yml:1
 ```
+
+With `-k`, yammy generates a file keeping variable expressions. These variable default values are updated with variable values at the time of generation.
+
+```bash
 
 ### Go library
 
