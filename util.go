@@ -3,22 +3,41 @@ package yammy
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 
+	"github.com/bmatcuk/doublestar/v4"
 	"gopkg.in/yaml.v3"
 )
 
 func mustRootNode(nd *yaml.Node) *yaml.Node {
+	if nd.Kind == 0 {
+		m := &yaml.Node{}
+		m.Kind = yaml.MappingNode
+		return m
+	}
 	if nd.Kind == yaml.DocumentNode {
 		if len(nd.Content) < 1 {
 			return nd
 		}
 		return nd.Content[0]
 	}
-	panic("must be a document node")
+	kind := "unknown"
+	switch nd.Kind {
+	case yaml.AliasNode:
+		kind = "alias"
+	case yaml.MappingNode:
+		kind = "mapping"
+	case yaml.ScalarNode:
+		kind = "scalar"
+	case yaml.SequenceNode:
+		kind = "sequence"
+	}
+	panic("must be a document node, but got " + kind)
 }
 
 func mustJSONPointer(base string, tokens ...any) string {
@@ -337,4 +356,26 @@ func parseJSONPointer(path string) (jsonPointer, error) {
 		}
 	}
 	return jsonPointer(ret), nil
+}
+
+func fsOpen(f fs.FS, path string) (fs.File, error) {
+	if f != nil {
+		return f.Open(path)
+	}
+	return os.Open(path)
+}
+
+func fsGlob(f fs.FS, pattern string) ([]string, error) {
+	if f != nil {
+		return doublestar.Glob(f, pattern)
+	}
+	base, p := doublestar.SplitPattern(pattern)
+	lst, err := doublestar.Glob(os.DirFS(base), p)
+	if err != nil {
+		return []string{}, err
+	}
+	for i, b := range lst {
+		lst[i] = filepath.Join(base, b)
+	}
+	return lst, err
 }

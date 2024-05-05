@@ -5,27 +5,28 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"os"
 	"path/filepath"
 
-	"github.com/bmatcuk/doublestar/v4"
 	"gopkg.in/yaml.v3"
 )
 
 type loadConfig struct {
-	FS               fs.FS
-	DirectiveKey     string
-	SourceMapKey     string
-	SourceMapComment bool
-	VarResolver      VarResolver
-	KeepsVariables   bool
+	FS                   fs.FS
+	DirectiveKey         string
+	SourceMapKey         string
+	SourceMapComment     bool
+	VarResolver          VarResolver
+	KeepsVariables       bool
+	RemovesBlockComments bool
 }
 
 // LoadOption is an option for [Load] .
 type LoadOption func(*loadConfig)
 
 // WithFileSystem is an option that specifies a file system.
-// This defaults to [os.DirFS](".") .
+// If this is not specified, files will be loaded from the real file system.
+// Since [fs.FS] does not allow paths start with . and .., WithFileSystem you must
+// specify paths that relative to the [fs.FS] root.
 func WithFileSystem(v fs.FS) LoadOption {
 	return func(c *loadConfig) {
 		c.FS = v
@@ -74,15 +75,23 @@ func WithKeepsVariables() LoadOption {
 	}
 }
 
+// WithRemovesBlockComments is an option that removes block comments.
+func WithRemovesBlockComments() LoadOption {
+	return func(c *loadConfig) {
+		c.RemovesBlockComments = true
+	}
+}
+
 // Load loads given YAML/JON file.
 func Load(name string, dest any, opts ...LoadOption) error {
 	c := &loadConfig{
-		FS:               os.DirFS("."),
-		DirectiveKey:     "_directives",
-		SourceMapKey:     "",
-		SourceMapComment: false,
-		VarResolver:      nil,
-		KeepsVariables:   false,
+		FS:                   nil,
+		DirectiveKey:         "_directives",
+		SourceMapKey:         "",
+		SourceMapComment:     false,
+		VarResolver:          nil,
+		KeepsVariables:       false,
+		RemovesBlockComments: false,
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -90,7 +99,7 @@ func Load(name string, dest any, opts ...LoadOption) error {
 
 	vNode := &yaml.Node{}
 	vNode.Kind = yaml.MappingNode
-	variables := newNode(vNode, name)
+	variables := newNode(vNode, name, c.RemovesBlockComments)
 	nd, err := loadNode(name, c, variables)
 	if err != nil {
 		return err
@@ -117,7 +126,7 @@ func Load(name string, dest any, opts ...LoadOption) error {
 		bs, _ := yaml.Marshal(sm)
 		_ = yaml.Unmarshal(bs, &smNode)
 		keyNode := newStringNode(c.SourceMapKey, nd.File)
-		nd.Put(keyNode, newNode(mustRootNode(&smNode), ""))
+		nd.Put(keyNode, newNode(mustRootNode(&smNode), "", c.RemovesBlockComments))
 	}
 
 	if dest != nil {
@@ -131,7 +140,7 @@ func Load(name string, dest any, opts ...LoadOption) error {
 }
 
 func loadNode(path string, c *loadConfig, allVariables *node) (*node, error) {
-	fp, err := c.FS.Open(path)
+	fp, err := fsOpen(c.FS, path)
 	if err != nil {
 		return nil, ErrIO.New("%s: failed to load given file", err, path)
 	}
@@ -148,7 +157,7 @@ func loadNode(path string, c *loadConfig, allVariables *node) (*node, error) {
 	}
 
 	rootNode := mustRootNode(doc)
-	root := newNode(rootNode, path)
+	root := newNode(rootNode, path, c.RemovesBlockComments)
 	if rootNode.Kind != yaml.MappingNode {
 		return nil, ErrYAML.New("%s: root node must be a mapping node(%s)", nil, path, root.KindString())
 	}
@@ -172,7 +181,7 @@ func loadNode(path string, c *loadConfig, allVariables *node) (*node, error) {
 			if !filepath.IsAbs(fullPath) {
 				fullPath = filepath.Join(filepath.Dir(path), include)
 			}
-			paths, err := doublestar.Glob(c.FS, fullPath)
+			paths, err := fsGlob(c.FS, fullPath)
 			if err != nil {
 				return nil, ErrIO.New("%s: failed to find a included file %s", err, path, include)
 			}

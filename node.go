@@ -19,23 +19,27 @@ type node struct {
 func newStringNode(s string, file string) *node {
 	key := &yaml.Node{}
 	key.SetString(s)
-	return newNode(key, file)
+	return newNode(key, file, false)
 }
 
-func newNode(n *yaml.Node, file string) *node {
+func newNode(n *yaml.Node, file string, rbc bool) *node {
 	nd := &node{
 		Node: n,
 		File: file,
 	}
-	initNode(nd)
+	initNode(nd, rbc)
 	return nd
 }
 
-func initNode(n *node) {
+func initNode(n *node, rbc bool) {
+	if rbc {
+		n.Node.FootComment = ""
+		n.Node.HeadComment = ""
+	}
 	nd := n.Node
 	for i := 0; i < len(nd.Content); i++ {
 		elm := nd.Content[i]
-		n.Content = append(n.Content, newNode(elm, n.File))
+		n.Content = append(n.Content, newNode(elm, n.File, rbc))
 	}
 }
 
