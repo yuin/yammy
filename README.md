@@ -212,6 +212,7 @@ yammy [COMMAND|-h]
 ```bash
 $ yammy generate -h
 Usage of generate:
+  -b    remove block comments(optional)
   -c    add source map comments
   -f string
         output format(yaml or json) (default "yaml")
