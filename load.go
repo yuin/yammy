@@ -2,10 +2,14 @@
 package yammy
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
+	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -18,6 +22,7 @@ type loadConfig struct {
 	VarResolver          VarResolver
 	KeepsVariables       bool
 	RemovesBlockComments bool
+	JSONPatches          []map[string]any
 }
 
 // LoadOption is an option for [Load] .
@@ -82,6 +87,30 @@ func WithRemovesBlockComments() LoadOption {
 	}
 }
 
+// WithJSONPatches is an option that specifies JSON patches.
+func WithJSONPatches(v []map[string]any) LoadOption {
+	return func(c *loadConfig) {
+		c.JSONPatches = v
+	}
+}
+
+// WithEnvJSONPatches is an option that specifies JSON patches from environment variables.
+// WithEnvJSONPatches sorts environment variables by the name and parses them as JSON patches.
+//
+// i.e.: WithEnvJSONPatches("PATCH")
+//
+// - PATCH_0='{"op":"add","path":"/test","value":"aaa"}'
+// - PATCH_1='{"op":"replace","path":"/test","value":"bbb"}'
+//
+// WithEnvJSONPatches panics if failed to parse environment variables as JSON.
+func WithEnvJSONPatches(prefix string) LoadOption {
+	patches, err := envJSONPatches(prefix)
+	if err != nil {
+		panic(err)
+	}
+	return WithJSONPatches(patches)
+}
+
 // Load loads given YAML/JON file.
 func Load(name string, dest any, opts ...LoadOption) error {
 	c := &loadConfig{
@@ -108,12 +137,29 @@ func Load(name string, dest any, opts ...LoadOption) error {
 
 	varResolver := c.VarResolver
 	if varResolver == nil {
-		varResolver = newDefaultVarResolver(variables)
+		varResolver = newCompositeVarResolver(
+			envVarResolver,
+			newDirectiveVarResolver(variables))
+	} else {
+		varResolver = newCompositeVarResolver(
+			varResolver,
+			newDirectiveVarResolver(variables))
 	}
 
 	err = processVars(nd, varResolver, c.KeepsVariables)
 	if err != nil {
 		return err
+	}
+
+	if len(c.JSONPatches) != 0 {
+		var pNode yaml.Node
+		bs, _ := yaml.Marshal(c.JSONPatches)
+		_ = yaml.Unmarshal(bs, &pNode)
+		err = processPatchNodes(nd, newNode(pNode.Content[0],
+			"<LoadOption.JSONPatches>", c.RemovesBlockComments))
+		if err != nil {
+			return err
+		}
 	}
 
 	if c.SourceMapComment {
@@ -341,11 +387,11 @@ func processVars(n *node, resolver VarResolver, keepsVariables bool) error {
 
 	switch n.Kind {
 	case yaml.MappingNode:
-		return n.ForEachMap(func(k, v *node) error {
+		return n.ForEachMap(func(_, v *node) error {
 			return processVars(v, resolver, keepsVariables)
 		})
 	case yaml.SequenceNode:
-		return n.ForEachSeq(func(i int, v *node) error {
+		return n.ForEachSeq(func(_ int, v *node) error {
 			return processVars(v, resolver, keepsVariables)
 		})
 	case yaml.ScalarNode:
@@ -367,4 +413,31 @@ func processVars(n *node, resolver VarResolver, keepsVariables bool) error {
 		}
 	}
 	return nil
+}
+
+func envJSONPatches(prefix string) ([]map[string]any, error) {
+	patches := map[string]string{}
+	var keys []string
+	for _, env := range os.Environ() {
+		if !strings.HasPrefix(env, prefix) {
+			continue
+		}
+		parts := strings.SplitN(env, "=", 2)
+		patches[parts[0]] = parts[1]
+		keys = append(keys, parts[0])
+	}
+	sort.Strings(keys)
+
+	var result []map[string]any
+	for _, k := range keys {
+		p := patches[k]
+		var patch map[string]any
+		err := json.Unmarshal([]byte(p), &patch)
+		if err != nil {
+			return nil, ErrYAML.New("failed to parse %s environment variable JSON patch", err, p)
+		}
+		result = append(result, patch)
+	}
+
+	return result, nil
 }

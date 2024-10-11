@@ -97,13 +97,21 @@ type vvv struct {
 // VarResolver returns [ErrVarNotFound] if variables not found.
 type VarResolver func(key string) (string, error)
 
-func newDefaultVarResolver(vars *node) VarResolver {
+func newCompositeVarResolver(resolvers ...VarResolver) VarResolver {
 	return func(key string) (string, error) {
-		ev, ok := os.LookupEnv(key)
-		if ok {
-			return ev, nil
+		for _, r := range resolvers {
+			v, err := r(key)
+			if errors.Is(err, ErrVarNotFound) {
+				continue
+			}
+			return v, err
 		}
+		return "", ErrVarNotFound.New("%s not found", nil, key)
+	}
+}
 
+func newDirectiveVarResolver(vars *node) VarResolver {
+	return func(key string) (string, error) {
 		if vars != nil && vars.Kind == yaml.MappingNode {
 			v := vars.Get(key)
 			if v != nil {
@@ -115,6 +123,14 @@ func newDefaultVarResolver(vars *node) VarResolver {
 		}
 		return "", ErrVarNotFound.New("%s not found", nil, key)
 	}
+}
+
+func envVarResolver(key string) (string, error) {
+	ev, ok := os.LookupEnv(key)
+	if ok {
+		return ev, nil
+	}
+	return "", ErrVarNotFound.New("%s not found", nil, key)
 }
 
 func expandVar(v string, resolv VarResolver, keepsVariables bool) (string, error) {

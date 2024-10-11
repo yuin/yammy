@@ -200,3 +200,39 @@ test:
 		})
 	}
 }
+
+func TestPatchLoadOption(t *testing.T) {
+	fs := newMockFS(map[string][]byte{
+		"test.yml": []byte(`
+test:
+  value: 10
+  value2:
+    - "000"
+    - "111"
+    - "222"
+`),
+	})
+	t.Setenv("PATCH_0", `{
+		"op":    "replace",
+		"path":  "/test/value",
+		"value": "aaa"
+	} `)
+	t.Setenv("PATCH_1", ` {
+		"op":    "replace",
+		"path":  "/test/value2/1",
+		"value": "bbb"
+	} `)
+
+	var result map[any]any
+	err := Load("test.yml", &result, WithFileSystem(fs), WithEnvJSONPatches("PATCH"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if "aaa" != result["test"].(map[string]any)["value"] {
+		t.Error("failed to patch variables")
+	}
+	if "bbb" != result["test"].(map[string]any)["value2"].([]any)[1] {
+		t.Error("failed to patch variables")
+	}
+}

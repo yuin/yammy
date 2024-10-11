@@ -134,7 +134,7 @@ func (n *node) HasKey(key *node) bool {
 		return false
 	}
 	found := false
-	_ = n.ForEachMap(func(k, v *node) error {
+	_ = n.ForEachMap(func(k, _ *node) error {
 		if key.Value == k.Value {
 			found = true
 			return nbreak
@@ -288,7 +288,7 @@ func (n *node) AddSourceComments() {
 			return nil
 		})
 	case yaml.SequenceNode:
-		_ = n.ForEachSeq(func(i int, v *node) error {
+		_ = n.ForEachSeq(func(_ int, v *node) error {
 			v.AddSourceComments()
 			return nil
 		})
@@ -320,7 +320,7 @@ func (n *node) Merge(other *node) (*node, error) {
 		}
 		return n, nil
 	case yaml.SequenceNode:
-		_ = other.ForEachSeq(func(i int, v *node) error {
+		_ = other.ForEachSeq(func(_ int, v *node) error {
 			n.Append(v)
 			return nil
 		})

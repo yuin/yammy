@@ -75,6 +75,8 @@ for included_file in include:
 node = merge(current_node, node)
 apply_json_patches(node, json_patches)
 resolve_variables(node, variables)
+if option.json_patches:
+  json_patches += option.json_patches
 print(to_yaml(node))
 ```
 
@@ -302,8 +304,6 @@ root: root #  root.yml:1
 ```
 
 With `-k`, yammy generates a file keeping variable expressions. These variable default values are updated with variable values at the time of generation.
-
-```bash
 
 ### Go library
 
