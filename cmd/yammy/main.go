@@ -28,6 +28,7 @@ func main() {
 	generateKeepsVariables := generateCmd.Bool("k", false, "keep variable expressions(optional)")
 	generateRemovesBlockComments := generateCmd.Bool("b", false, "remove block comments(optional)")
 	generateSourceMap := generateCmd.String("s", "", "source map node key name")
+	generateEnvJSONPatches := generateCmd.String("p", "JSON_PATCH", "JSON Patch env key prefix")
 
 	cmdName := "generate"
 	args := []string{}
@@ -66,6 +67,9 @@ redo:
 		}
 		if *generateRemovesBlockComments {
 			opts = append(opts, yammy.WithRemovesBlockComments())
+		}
+		if len(*generateEnvJSONPatches) != 0 {
+			opts = append(opts, yammy.WithEnvJSONPatches(*generateEnvJSONPatches))
 		}
 		abortIf(yammy.Load(*generateInput, &n, opts...))
 		var err error

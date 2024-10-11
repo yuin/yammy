@@ -224,6 +224,8 @@ Usage of generate:
   -k    keep variable expressions(optional)
   -o string
         output file path(optional)
+  -p string
+        JSON Patch env key prefix (default "JSON_PATCH")
   -s string
         source map node key name
 ```
