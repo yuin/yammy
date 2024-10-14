@@ -330,6 +330,14 @@ func (n *node) Merge(other *node) (*node, error) {
 	}
 }
 
+func (n *node) ClearPosition(recursive bool) {
+	n.Line = 1
+	n.Column = 1
+	for _, c := range n.Content {
+		c.ClearPosition(recursive)
+	}
+}
+
 // SourceMap is a mapping that nodes and files.
 type SourceMap struct {
 	// Sources is a file paths that contain nodes.

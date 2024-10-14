@@ -8,6 +8,8 @@ import (
 )
 
 func TestSourceMap(t *testing.T) {
+	t.Setenv("PATCH_0", `{"op":"add","path":"/grand/value5","value":"envpatch"}`)
+	t.Setenv("V1", "99")
 	fs := newMockFS(map[string][]byte{
 		"test.yml": []byte(`
 _directives:
@@ -19,7 +21,7 @@ _directives:
       value: ooo
 test:
   value: 10
-  c1: 99
+  c1: ${V1:98}
   value2:
     - 20
 `),
@@ -62,7 +64,7 @@ grand:
 	})
 	var result yaml.Node
 	err := Load("test.yml", &result, WithFileSystem(fs),
-		WithSourceMapComment(), WithSourceMapKey("_sourcemap"))
+		WithSourceMapComment(), WithSourceMapKey("_sourcemap"), WithEnvJSONPatches("PATCH"))
 	if err != nil {
 		t.Error(err.Error())
 	}
@@ -75,6 +77,7 @@ grand:
         - test.yml
         - grand-parent.yml
         - grand-parent2.yml
+        - ${PATCH_0}
         - parent.yml
     mappings:
         - path: /
@@ -87,8 +90,8 @@ grand:
           file: grand-parent2.yml
           line: 3
         - path: /grand/value5
-          file: grand-parent2.yml
-          line: 4
+          file: ${PATCH_0}
+          line: 1
         - path: /parent
           file: grand-parent.yml
           line: 4
@@ -139,7 +142,7 @@ grand:
           line: 13
 grand: #  grand-parent.yml:2
     value4: bbb #  grand-parent2.yml:3
-    value5: ccc #  grand-parent2.yml:4
+    value5: envpatch #  ${PATCH_0}:1
 parent: #  grand-parent.yml:4
     c2: 100 #  parent.yml:11
     c3: 777 #  grand-parent.yml:5

@@ -88,6 +88,10 @@ func WithRemovesBlockComments() LoadOption {
 }
 
 // WithJSONPatches is an option that specifies JSON patches.
+// Arguments must be a slice of JSON patches.
+// In addition to the standard JSON patch properties(op, path, value),
+// 'source' property is also supported.
+// 'source' will be used as a source map.
 func WithJSONPatches(v []map[string]any) LoadOption {
 	return func(c *loadConfig) {
 		c.JSONPatches = v
@@ -155,10 +159,17 @@ func Load(name string, dest any, opts ...LoadOption) error {
 		var pNode yaml.Node
 		bs, _ := yaml.Marshal(c.JSONPatches)
 		_ = yaml.Unmarshal(bs, &pNode)
-		err = processPatchNodes(nd, newNode(pNode.Content[0],
-			"<LoadOption.JSONPatches>", c.RemovesBlockComments))
-		if err != nil {
-			return err
+		pnr := newNode(pNode.Content[0],
+			"<LoadOption.JSONPatches>", c.RemovesBlockComments)
+		pnr.ClearPosition(true)
+		for _, pn := range pnr.Content {
+			if source := pn.Get("source"); source != nil {
+				pn = newNode(pn.Node, source.Value, c.RemovesBlockComments)
+			}
+			err := processPatchNode(nd, pn)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
@@ -284,48 +295,59 @@ func processPatchNodes(n *node, patchNodes *node) error {
 	}
 
 	for _, patchNode := range patchNodes.Content {
-		if patchNode.Kind != yaml.MappingNode {
-			return ErrDirective.New("%s: invalid patch", nil, patchNode.Where())
-		}
-		pn := patchNode.Get("path")
-		on := patchNode.Get("op")
-		if pn == nil || on == nil {
-			return ErrDirective.New(
-				"%s: invalid patch(op and path are required)", nil, patchNode.Where())
-		}
-		path := pn.Value
-		op := on.Value
-		jp, err := parseJSONPointer(path)
+		err := processPatchNode(n, patchNode)
 		if err != nil {
-			return ErrDirective.New("%s: %s", nil, patchNode.Where(), err.Error())
+			return err
 		}
-
-		newValue := patchNode.Get("value")
-		if op == "add" {
-			if err := jsonPatchAdd(n, jp, newValue); err != nil {
-				return ErrDirective.New("%s: %s", nil, patchNode.Where(), err.Error())
-			}
-			continue
-		}
-		if op == "remove" {
-			if err := jsonPatchRemove(n, jp); err != nil {
-				return ErrDirective.New("%s: %s", nil, patchNode.Where(), err.Error())
-			}
-			continue
-		}
-		if op == "replace" {
-			_ = jsonPatchRemove(n, jp)
-			if err := jsonPatchAdd(n, jp, newValue); err != nil {
-				return ErrDirective.New("%s: %s", nil, patchNode.Where(), err.Error())
-			}
-			continue
-		}
-
-		return ErrDirective.New(
-			"%s: unsupported patch operation: %s", nil, patchNode.Where(), op)
 	}
 
 	return nil
+}
+
+func processPatchNode(n *node, patchNode *node) error {
+	if patchNode == nil {
+		return nil
+	}
+
+	if patchNode.Kind != yaml.MappingNode {
+		return ErrDirective.New("%s: invalid patch", nil, patchNode.Where())
+	}
+	pn := patchNode.Get("path")
+	on := patchNode.Get("op")
+	if pn == nil || on == nil {
+		return ErrDirective.New(
+			"%s: invalid patch(op and path are required)", nil, patchNode.Where())
+	}
+	path := pn.Value
+	op := on.Value
+	jp, err := parseJSONPointer(path)
+	if err != nil {
+		return ErrDirective.New("%s: %s", nil, patchNode.Where(), err.Error())
+	}
+
+	newValue := patchNode.Get("value")
+	if op == "add" {
+		if err := jsonPatchAdd(n, jp, newValue); err != nil {
+			return ErrDirective.New("%s: %s", nil, patchNode.Where(), err.Error())
+		}
+		return nil
+	}
+	if op == "remove" {
+		if err := jsonPatchRemove(n, jp); err != nil {
+			return ErrDirective.New("%s: %s", nil, patchNode.Where(), err.Error())
+		}
+		return nil
+	}
+	if op == "replace" {
+		_ = jsonPatchRemove(n, jp)
+		if err := jsonPatchAdd(n, jp, newValue); err != nil {
+			return ErrDirective.New("%s: %s", nil, patchNode.Where(), err.Error())
+		}
+		return nil
+	}
+
+	return ErrDirective.New(
+		"%s: unsupported patch operation: %s", nil, patchNode.Where(), op)
 }
 
 func jsonPatchAdd(n *node, jp jsonPointer, newValue *node) error {
@@ -436,6 +458,7 @@ func envJSONPatches(prefix string) ([]map[string]any, error) {
 		if err != nil {
 			return nil, ErrYAML.New("failed to parse %s environment variable JSON patch", err, p)
 		}
+		patch["source"] = "${" + k + "}"
 		result = append(result, patch)
 	}
 
