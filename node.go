@@ -22,6 +22,18 @@ func newStringNode(s string, file string) *node {
 	return newNode(key, file, false)
 }
 
+func newSequenceNode(file string) *node {
+	key := &yaml.Node{}
+	key.Kind = yaml.SequenceNode
+	return newNode(key, file, false)
+}
+
+func newMappingNode(file string) *node {
+	key := &yaml.Node{}
+	key.Kind = yaml.MappingNode
+	return newNode(key, file, false)
+}
+
 func newNode(n *yaml.Node, file string, rbc bool) *node {
 	nd := &node{
 		Node: n,
@@ -108,7 +120,7 @@ func (n *node) FindNodeByJSONPointer(path string) (*node, error) {
 	}
 	ret, err := findNodeByJSONPointer(n, p, 0)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %s", path, err.Error())
+		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	return ret, nil
 }

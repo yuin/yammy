@@ -3,6 +3,7 @@ package yammy
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -340,7 +341,7 @@ func processPatchNode(n *node, patchNode *node) error {
 	}
 	if op == "replace" {
 		_ = jsonPatchRemove(n, jp)
-		if err := jsonPatchAdd(n, jp, newValue); err != nil {
+		if err := jsonPatchAdd(n, jp, newValue); err != nil && !errors.Is(err, errNotFound) {
 			return ErrDirective.New("%s: %s", nil, patchNode.Where(), err.Error())
 		}
 		return nil
@@ -353,6 +354,14 @@ func processPatchNode(n *node, patchNode *node) error {
 func jsonPatchAdd(n *node, jp jsonPointer, newValue *node) error {
 	parent, child := jp.Pop()
 	target, err := n.FindNodeByJSONPointer(parent.String())
+
+	if errors.Is(err, errNotFound) {
+		err = ensureJSONPointerParent(n, jp)
+		if err != nil {
+			return err
+		}
+		target, err = n.FindNodeByJSONPointer(parent.String())
+	}
 	if err != nil {
 		return err
 	}
@@ -377,6 +386,43 @@ func jsonPatchAdd(n *node, jp jsonPointer, newValue *node) error {
 	}
 	return fmt.Errorf("can not perform an add '%s' key operation on (an) %s node(path: %s)",
 		child.Original, target.KindString(), parent.String())
+}
+
+func ensureJSONPointerParent(obj *node, pointer jsonPointer) error {
+	parent := obj
+	for i := 0; i < len(pointer)-1; i++ {
+		t := pointer[i]
+		n := pointer[i+1]
+		if t.IsIndex {
+			if parent.Kind == yaml.SequenceNode {
+				if len(parent.Content) <= t.Index {
+					if parent.Content[t.Index] == nil {
+						if n.IsIndex {
+							parent.Content[t.Index] = newSequenceNode(parent.File)
+						} else {
+							parent.Content[t.Index] = newMappingNode(parent.File)
+						}
+					}
+					parent = parent.Content[t.Index]
+					continue
+				}
+			}
+		}
+		if parent.Kind == yaml.MappingNode {
+			key := newStringNode(t.String, parent.File)
+			if v := parent.Get(t.String); v == nil {
+				if n.IsIndex {
+					parent.Put(key, newSequenceNode(parent.File))
+				} else {
+					parent.Put(key, newMappingNode(parent.File))
+				}
+			}
+			parent = parent.Get(t.String)
+			continue
+		}
+		return fmt.Errorf("can not evaluate an index %s on %T object", t.String, parent)
+	}
+	return nil
 }
 
 func jsonPatchRemove(n *node, jp jsonPointer) error {

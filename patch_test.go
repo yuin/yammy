@@ -201,6 +201,49 @@ test:
 	}
 }
 
+func TestPatchAddAutoCreate(t *testing.T) {
+	fs := newMockFS(map[string][]byte{
+		"test.yml": []byte(`
+_directives:
+  patches:
+    - op: add
+      path: /root/new/value
+      value: aaa
+test:
+  value:
+    - "000"
+`)})
+
+	var result map[any]any
+	err := Load("test.yml", &result, WithFileSystem(fs))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if "aaa" != result["root"].(map[string]any)["new"].(map[string]any)["value"] {
+		t.Error("failed to add variables(w/ autocreate parent object)")
+	}
+
+	fs = newMockFS(map[string][]byte{
+		"test.yml": []byte(`
+_directives:
+  patches:
+    - op: add
+      path: /root/new/-
+      value: aaa
+test:
+  value:
+    - "000"
+`)})
+
+	err = Load("test.yml", &result, WithFileSystem(fs))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if "aaa" != result["root"].(map[string]any)["new"].([]any)[0] {
+		t.Error("failed to add variables(w/ autocreate parent sequence)")
+	}
+}
+
 func TestPatchLoadOption(t *testing.T) {
 	fs := newMockFS(map[string][]byte{
 		"test.yml": []byte(`
