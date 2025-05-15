@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -483,6 +485,40 @@ func processVars(n *node, resolver VarResolver, keepsVariables bool) error {
 	return nil
 }
 
+func cleanJSONPatch(jsonValue any) any {
+	switch jv := jsonValue.(type) {
+	case float64:
+		f := jv
+		canInt := f >= math.MinInt64 && f <= math.MaxInt64 && f == math.Trunc(f)
+		var value string
+		var tag string
+		if canInt {
+			value = fmt.Sprintf("%d", int64(f))
+			tag = "!!int"
+		} else {
+			value = strconv.FormatFloat(f, 'f', -1, 64)
+			tag = "!!float"
+		}
+
+		return &yaml.Node{
+			Kind:  yaml.ScalarNode,
+			Value: value,
+			Tag:   tag,
+		}
+	case map[string]any:
+		for k, v := range jv {
+			jv[k] = cleanJSONPatch(v)
+		}
+	case []any:
+		for i, v := range jv {
+			jv[i] = cleanJSONPatch(v)
+		}
+	default:
+
+	}
+	return jsonValue
+}
+
 func envJSONPatches(prefix string) ([]map[string]any, error) {
 	patches := map[string]string{}
 	var keys []string
@@ -505,7 +541,7 @@ func envJSONPatches(prefix string) ([]map[string]any, error) {
 			return nil, ErrYAML.New("failed to parse %s environment variable JSON patch", err, p)
 		}
 		patch["source"] = "${" + k + "}"
-		result = append(result, patch)
+		result = append(result, cleanJSONPatch(patch).(map[string]any))
 	}
 
 	return result, nil
