@@ -8,7 +8,7 @@ import (
 	"os"
 
 	"github.com/yuin/yammy"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 func abortIf(err error) {
